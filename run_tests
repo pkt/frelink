@@ -44,6 +44,27 @@ test2()
 }
 
 
+# Test 3: When the module is loaded, /proc/frelink should appear
+#         and disappear when it is unloaded.
+test3()
+{
+	insmod frelink.ko
+	if [ -r /proc/frelink ]; then
+		pass 3.1
+	else
+		fail 3.1
+	fi
+
+	rmmod frelink.ko
+	if [ -r /proc/frelink ]; then
+		fail 3.2
+	else
+		pass 3.2
+	fi
+}
+
+
 # Actually run the tests (easy to activate / deactivate)
 test1
 test2
+test3

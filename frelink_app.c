@@ -22,10 +22,48 @@
  *
  */
 
+#include <stdio.h>
+#include <fcntl.h>
+#include <errno.h>
+
 #include "frelink.h"
 
 
-int main()
+static int get_module_fd();
+
+
+int main(int argc, char **argv)
 {
-	return 0;
+	int devfd;
+	int ret = 0;
+
+	if (argc != 2) {
+		fputs("Usage: frelink /proc/<pid>/fd/<fd>\n"
+		          "or frelink /dev/loop0\n", stderr);
+		ret = 0; goto exit;
+	}
+
+
+	devfd = get_module_fd();
+	if (devfd < 0) {
+		perror("open /proc/frelink: ");
+		ret = 1; goto exit;
+	}
+
+
+exit:
+	return ret;
+}
+
+
+static int get_module_fd()
+{
+	int fd = open("/proc/frelink", O_RDONLY, 0400);
+
+	if (fd < 0) {
+		errno = ENODEV;
+		return -1;
+	}
+
+	return fd;
 }

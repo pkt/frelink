@@ -25,6 +25,8 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 
+#include <linux/proc_fs.h>
+
 #include "frelink.h"
 
 
@@ -38,9 +40,28 @@ MODULE_VERSION("0.5");
 #define IPRINTK(_f, _a...) printk(KERN_INFO MODULE_NAME ": " _f, ## _a)
 
 
+/*
+ * Our main data structure.
+ */
+struct frelink_data {
+	struct proc_dir_entry *proc_entry;
+};
+static struct frelink_data frelink;
+
+
 static int __init frelink_init(void)
 {
+  	struct proc_dir_entry *entry;
+
 	IPRINTK ("frelink module loaded\n");
+
+	entry = create_proc_entry(MODULE_NAME, 0400, NULL);
+	if (!entry) {
+		printk (KERN_ALERT "Error creating /proc/"MODULE_NAME" file\n");
+		return -EBADF;
+	}
+	frelink.proc_entry = entry;
+
 	return 0;
 }
 module_init(frelink_init);
@@ -49,5 +70,7 @@ module_init(frelink_init);
 static void __exit frelink_exit(void)
 {
 	IPRINTK ("unloading module...\n");
+
+	remove_proc_entry(MODULE_NAME, NULL);
 }
 module_exit(frelink_exit);
