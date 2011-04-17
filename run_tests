@@ -1,0 +1,39 @@
+#!/bin/bash
+
+set -u
+set -e
+
+if [[ `id -u` != "0" ]]; then
+	echo "This script should be run as root!"
+fi
+
+
+#Test 1: If run with no arguments, frelink should exit normally
+test1()
+{
+	if ! ./frelink; then
+		echo "test 1: fail"
+	else
+		echo "test 1: pass"
+	fi
+}
+
+# Test 2: The module should be able to be insmodded/rmmoded
+#         with no ill effects.
+test2()
+{
+	if ! insmod frelink.ko; then
+		echo "test 2: fail"
+		return
+	fi
+	if ! rmmod frelink.ko; then
+		echo "test 2: fail"
+	else
+		echo "test 2: pass"
+	fi
+}
+
+
+# Actually run the tests (easy to activate / deactivate)
+test1
+test2
