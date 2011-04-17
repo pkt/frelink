@@ -5,14 +5,28 @@ set -e
 
 if [[ `id -u` != "0" ]]; then
 	echo >&2 "This script should be run as root!"
+	exit 33
 fi
 
+
+# Cleanup function for robustness
+cleanup()
+{
+	if grep frelink /proc/modules; then
+		rmmod frelink.ko
+	fi
+}
+trap cleanup 0
+
+
+# Standardized fail function
 fail()
 {
 	echo >&2 "Test $1: fail"
-	exit 1
+	exit 34
 }
 
+# Standardized pass function
 pass()
 {
 	echo >&2 "Test $1: pass"
