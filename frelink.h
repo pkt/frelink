@@ -25,5 +25,29 @@
 #ifndef FRELINK_H_
 #define FRELINK_H_
 
+#ifdef  __KERNEL__
+#include <linux/ioctl.h>
+#else
+#include <sys/ioctl.h>
+#endif
+
+
+struct frelink_arg
+{
+  union {
+    unsigned int fd;
+    unsigned int lno;
+  } id;
+  const char *path;
+};
+
+/* Use '0xF5' as magic number, ioctl-number.txt indicates it is free */
+#define FRELINK_IOC_MAGIC 0xF5
+
+#define FRELINK_IOCRECFD     _IOW(FRELINK_IOC_MAGIC, 1, struct frelink_arg *)
+#define FRELINK_IOCRECLOOP   _IOW(FRELINK_IOC_MAGIC, 2, struct frelink_arg *)
+#define FRELINK_IOCRECTEST   _IOW(FRELINK_IOC_MAGIC, 3, struct frelink_arg *)
+
+#define FRELINK_IOC_MAXNR    3
 
 #endif /* FRELINK_H_ */

@@ -23,6 +23,7 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 #include <fcntl.h>
 #include <errno.h>
 
@@ -30,12 +31,16 @@
 
 
 static int get_module_fd();
+static int tst_ioctl(unsigned int devfd);
 
 
 int main(int argc, char **argv)
 {
 	int devfd;
+	char *arg;
+
 	int ret = 0;
+
 
 	if (argc != 2) {
 		fputs("Usage: frelink /proc/<pid>/fd/<fd>\n"
@@ -43,13 +48,20 @@ int main(int argc, char **argv)
 		ret = 0; goto exit;
 	}
 
-
 	devfd = get_module_fd();
 	if (devfd < 0) {
-		perror("open /proc/frelink: ");
+		perror("open /proc/frelink");
 		ret = 1; goto exit;
 	}
 
+	if (strncmp(arg, "--test-ioctl",12) == 0) {
+		ret = tst_ioctl(devfd);
+		goto release_devfd;
+	}
+
+
+release_devfd:
+	close(devfd);
 
 exit:
 	return ret;
@@ -58,7 +70,7 @@ exit:
 
 static int get_module_fd()
 {
-	int fd = open("/proc/frelink", O_RDONLY, 0400);
+	int fd = open("/proc/frelink", O_RDONLY, 0444);
 
 	if (fd < 0) {
 		errno = ENODEV;
@@ -66,4 +78,13 @@ static int get_module_fd()
 	}
 
 	return fd;
+}
+
+
+static int tst_ioctl(unsigned int devfd)
+{
+	struct frelink_arg data;
+
+	data.id.fd = 1;
+	return ioctl(devfd, FRELINK_IOCRECTEST, &data);
 }

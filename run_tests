@@ -64,7 +64,21 @@ test3()
 }
 
 
+# Test 4: Test ioctl connection between userspace and kernel
+test4()
+{
+	insmod frelink.ko
+	if ! ./frelink --test-ioctl; then
+		fail 4
+	else
+		pass 4
+	fi
+	rmmod frelink.ko
+}
+
+
 # Actually run the tests (easy to activate / deactivate)
 test1
 test2
 test3
+test4

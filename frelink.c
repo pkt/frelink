@@ -26,6 +26,7 @@
 #include <linux/module.h>
 
 #include <linux/proc_fs.h>
+#include <asm/uaccess.h>
 
 #include "frelink.h"
 
@@ -39,6 +40,11 @@ MODULE_VERSION("0.5");
 
 #define IPRINTK(_f, _a...) printk(KERN_INFO MODULE_NAME ": " _f, ## _a)
 
+/*
+ * Forward decls
+ */
+
+
 
 /*
  * Our main data structure.
@@ -49,6 +55,46 @@ struct frelink_data {
 static struct frelink_data frelink;
 
 
+/* IOCTL CODE ---------------------------------------------------------*/
+static long frelink_ioctl(struct file *file, unsigned int cmd,
+                                            unsigned long arg)
+{
+	struct frelink_arg __user *p = (struct frelink_arg __user *)arg;
+	int ret = 0;
+
+	/* Basic access checks */
+	if ((_IOC_TYPE(cmd) != FRELINK_IOC_MAGIC) ||
+	    (_IOC_NR(cmd) > FRELINK_IOC_MAXNR)    ||
+	    (_IOC_DIR(cmd) & _IOC_READ)) return -ENOTTY;
+
+	if (!access_ok(VERIFY_READ, p, _IOC_SIZE(cmd)))
+		return -EFAULT;
+
+	switch (cmd) {
+	case FRELINK_IOCRECFD:
+		ret = 0;
+		break;
+	case FRELINK_IOCRECLOOP:
+		ret = 0;
+		break;
+	case FRELINK_IOCRECTEST:
+		ret = p->id.fd == 1 ? 0 : -EFAULT;
+		break;
+	default:
+		ret = -ENOTTY;
+		break;
+	}
+
+	return ret;
+}
+
+static const struct file_operations frelink_ops = {
+  .owner = THIS_MODULE,
+  .unlocked_ioctl = frelink_ioctl,
+};
+/* END IOCTL CODE -----------------------------------------------------*/
+
+
 static int __init frelink_init(void)
 {
   	struct proc_dir_entry *entry;
@@ -57,9 +103,11 @@ static int __init frelink_init(void)
 
 	entry = create_proc_entry(MODULE_NAME, 0400, NULL);
 	if (!entry) {
-		printk (KERN_ALERT "Error creating /proc/"MODULE_NAME" file\n");
+		printk (KERN_ALERT "Error creating /proc/"MODULE_NAME
+		                                          " file\n");
 		return -EBADF;
 	}
+	entry->proc_fops = &frelink_ops;
 	frelink.proc_entry = entry;
 
 	return 0;
