@@ -4,32 +4,42 @@ set -u
 set -e
 
 if [[ `id -u` != "0" ]]; then
-	echo "This script should be run as root!"
+	echo >&2 "This script should be run as root!"
 fi
+
+fail()
+{
+	echo >&2 "Test $1: fail"
+	exit 1
+}
+
+pass()
+{
+	echo >&2 "Test $1: pass"
+}
 
 
 #Test 1: If run with no arguments, frelink should exit normally
 test1()
 {
 	if ! ./frelink; then
-		echo "test 1: fail"
+		fail 1
 	else
-		echo "test 1: pass"
+		pass 1
 	fi
 }
 
 # Test 2: The module should be able to be insmodded/rmmoded
-#         with no ill effects.
+#         with no ill effects. (look at dmesg)
 test2()
 {
 	if ! insmod frelink.ko; then
-		echo "test 2: fail"
-		return
+		fail 2
 	fi
 	if ! rmmod frelink.ko; then
-		echo "test 2: fail"
+		fail 2
 	else
-		echo "test 2: pass"
+		pass 2 
 	fi
 }
 
