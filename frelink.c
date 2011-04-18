@@ -28,6 +28,10 @@
 #include <linux/proc_fs.h>
 #include <asm/uaccess.h>
 
+#include <linux/namei.h>
+#include <linux/file.h>
+#include <linux/fs.h>
+
 #include "frelink.h"
 
 
@@ -55,6 +59,77 @@ struct frelink_data {
 static struct frelink_data frelink;
 
 
+/*
+ * This function is a "juice" of the module and shared by
+ * both code paths (fd and loop). Given a "struct file *"
+ * and a path, it makes a new hardlink for the deleted
+ * file's inode so that it doesn't get actually deleted.
+ */
+static int relink_file(struct file *f, char *path)
+{
+	struct dentry *old_d, *new_d;
+	struct nameidata nd;
+	int ret;
+
+	old_d = f->f_dentry;
+
+	ret = path_lookup(path, LOOKUP_PARENT, &nd);
+	if (ret)
+		goto exit;
+
+	ret = -EXDEV;
+
+	new_d = lookup_create(&nd, 0);
+	ret = PTR_ERR(new_d);
+	if (!IS_ERR(new_d)) {
+		//If we don't do this, vfs_link() won't work
+		old_d->d_inode->i_nlink = 1;
+
+		//This is the essence of what this module does :)
+		ret = vfs_link(old_d, nd.path.dentry->d_inode, new_d);
+
+		//This will remove the "(deleted)" suffix from the old dentry
+		d_rehash(old_d);
+
+		dput(new_d);
+	}
+	mutex_unlock(&nd.path.dentry->d_inode->i_mutex);
+	path_put(&nd.path);
+
+exit:
+	return ret;
+}
+
+
+
+/*
+ * IOCTL handler 1: recover from fd.
+ * Wrapper for recover_from_file()
+ */
+static int recover_from_fd(struct frelink_arg *p)
+{
+	struct file *f;
+	int fd = p->id.fd;
+	char *path = getname(p->path);
+	int ret = PTR_ERR(path);
+	if (IS_ERR(path))
+		return ret;
+
+	IPRINTK("Recovering from fd \"%d\"to path \"%s\"", fd, path);
+
+	f = fget(fd);
+	if (!f) {
+		ret = -EBADF;
+		goto exit;
+	}
+	ret = relink_file(f, path);
+
+exit:
+	fput(f);
+	return ret;
+}
+
+
 /* IOCTL CODE ---------------------------------------------------------*/
 static long frelink_ioctl(struct file *file, unsigned int cmd,
                                             unsigned long arg)
@@ -72,7 +147,7 @@ static long frelink_ioctl(struct file *file, unsigned int cmd,
 
 	switch (cmd) {
 	case FRELINK_IOCRECFD:
-		ret = 0;
+		ret = recover_from_fd(p);
 		break;
 	case FRELINK_IOCRECLOOP:
 		ret = 0;

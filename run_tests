@@ -12,7 +12,7 @@ fi
 # Cleanup function for robustness
 cleanup()
 {
-	if grep frelink /proc/modules; then
+	if grep frelink /proc/modules &>/dev/null; then
 		rmmod frelink.ko
 	fi
 }
@@ -57,7 +57,6 @@ test2()
 	fi
 }
 
-
 # Test 3: When the module is loaded, /proc/frelink should appear
 #         and disappear when it is unloaded.
 test3()
@@ -77,7 +76,6 @@ test3()
 	fi
 }
 
-
 # Test 4: Test ioctl connection between userspace and kernel
 test4()
 {
@@ -90,9 +88,57 @@ test4()
 	rmmod frelink.ko
 }
 
+# Test 5: Test recovering a file from /proc/$$/fd/6
+test5()
+{
+	local tmp
+	local tmpfile=`mktemp`
+	echo "blabla" > $tmpfile
+	exec 6<> $tmpfile # open $tmpfile, assign to fd 6
+	rm -f $tmpfile
+
+	insmod frelink.ko
+	./frelink /proc/$$/fd/6
+
+	# If the file was not recovered
+	if ! [ -r $tmpfile ]; then
+		fail 5.1
+	else
+		pass 5.1
+	fi
+
+	tmp=`readlink /proc/$$/fd/6`
+
+	# If the link is not restored
+	if [[ "$tmp" != "$tmpfile" ]]; then
+		fail 5.2
+	else
+		pass 5.2
+	fi
+
+	tmp=`cat $tmpfile`
+
+	# If the contents of the file are not the correct ones
+	if [[ "$tmp" != "blabla" ]]; then
+		fail 5.3
+	else
+		pass 5.3
+	fi
+
+	exec 6>&-  # close fd 6
+
+	if ! [ -r "$tmpfile" ]; then
+		fail 5.4
+	else
+		pass 5.4
+	fi
+
+	rm -f "$tmpfile"
+}
 
 # Actually run the tests (easy to activate / deactivate)
 test1
 test2
 test3
 test4
+test5

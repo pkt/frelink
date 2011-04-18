@@ -33,6 +33,11 @@
 static int get_module_fd();
 static int tst_ioctl(unsigned int devfd);
 
+static int recover_from_fd(unsigned int devfd, const char *const name);
+static int recover_from_lo(unsigned int devfd, const char *const name);
+
+
+#define starts_with(A,B) (strncmp((A), (B), strlen(B)) == 0)
 
 int main(int argc, char **argv)
 {
@@ -48,17 +53,31 @@ int main(int argc, char **argv)
 		ret = 0; goto exit;
 	}
 
+	arg = argv[1];
+
 	devfd = get_module_fd();
 	if (devfd < 0) {
 		perror("open /proc/frelink");
 		ret = 1; goto exit;
 	}
 
-	if (strncmp(arg, "--test-ioctl",12) == 0) {
+	if (starts_with(arg, "--test-ioctl")) {
 		ret = tst_ioctl(devfd);
 		goto release_devfd;
 	}
 
+	if (starts_with(arg, "/proc")) {
+		ret = recover_from_fd(devfd, arg);
+		goto release_devfd;
+	}
+
+	if (starts_with(arg, "/dev/loop")) {
+		ret = recover_from_lo(devfd, arg);
+		goto release_devfd;
+	}
+
+	fputs("illegal argument\n", stderr);
+	ret = 1;
 
 release_devfd:
 	close(devfd);
@@ -80,6 +99,28 @@ static int get_module_fd()
 	return fd;
 }
 
+char *recover_name_from_fd(const char *const fdname)
+{
+	#define BUFSIZE 1024
+	static char namebuf[1024];
+
+	ssize_t len = readlink(fdname, namebuf, BUFSIZE-1);
+
+	if (len != -1)
+		namebuf[len] = '\0';
+	else {
+		fprintf(stderr, "invalid /proc file name\n");
+		errno = EBADF;
+		return NULL;
+	}
+
+	if ( len > 10 && !strcmp(namebuf+len-10, " (deleted)")) {
+		*(namebuf + len - 10) = '\0';
+	}
+
+	return namebuf;
+}
+
 
 static int tst_ioctl(unsigned int devfd)
 {
@@ -87,4 +128,36 @@ static int tst_ioctl(unsigned int devfd)
 
 	data.id.fd = 1;
 	return ioctl(devfd, FRELINK_IOCRECTEST, &data);
+}
+
+static int recover_from_fd(unsigned int devfd, const char *const name)
+{
+	struct frelink_arg data;
+	char * newname = recover_name_from_fd(name);
+
+	int fd = open(name, O_RDONLY, 0666);
+	if (fd < 0) {
+		fprintf(stderr, "open");
+		perror(name);
+		return 1;
+	}
+
+	if (!name) {
+		perror("recover_name_from_fd");
+		errno = EBADF;
+	}
+
+	data.id.fd = fd;
+	data.path  = newname;
+
+	return ioctl(devfd, FRELINK_IOCRECFD, &data);
+}
+
+static int recover_from_lo(unsigned int devfd, const char *const name)
+{
+	struct frelink_arg data;
+	int loidx = 0;
+
+	fputs("TODO\n",stderr);
+	return 0;
 }
