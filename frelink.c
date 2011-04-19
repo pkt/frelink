@@ -36,6 +36,8 @@
 #include <linux/kprobes.h>
 #include <linux/loop.h>
 
+#include <linux/workqueue.h>
+
 #include "frelink.h"
 
 
@@ -52,13 +54,18 @@ MODULE_VERSION("0.5");
  * Forward decls
  */
 static long jloop_get_status(struct loop_device *lo, struct loop_info64 *info);
+static void do_recover(struct work_struct *work);
+static int relink_file(struct file *f, char *path);
 
 
 /*
  * Our main data structure.
  */
 struct frelink_data {
+	struct delayed_work work;
 	struct proc_dir_entry *proc_entry;
+	struct file *file;
+	char *path;
 	atomic_t busy;
 	atomic_t loidx;
 };
@@ -74,6 +81,24 @@ static struct jprobe loop_jprobe = {
 		.symbol_name     = "loop_get_status",
 	},
 };
+
+
+static void do_recover(struct work_struct *work)
+{
+	struct frelink_data *rd = container_of(work,
+	                                       struct frelink_data,
+	                                       work.work);
+	struct file *file = rd->file;
+	char *name = rd->path;
+
+	int ret = relink_file(file, name);
+
+	if (ret == 0)
+		IPRINTK("File \"%s\" undelete OK!\n", name);
+	else
+		IPRINTK("Failed to undelete \"%s\": "
+                        "ret = \"%d\"\n", name, ret);
+}
 
 
 /*
@@ -123,6 +148,10 @@ exit:
  */
 static long jloop_get_status(struct loop_device *lo, struct loop_info64 *info)
 {
+	struct file *lofile;
+	char *lopath;
+	int nlinks;
+
 	int loidx = lo->lo_number;
 	int myloidx = atomic_read(&frelink.loidx);
 
@@ -130,7 +159,18 @@ static long jloop_get_status(struct loop_device *lo, struct loop_info64 *info)
 	if (loidx != myloidx)
 		goto exit;
 	
-	IPRINTK("Successfully hooked loop_get_status for /dev/loop%d\n",loidx);
+	IPRINTK("\"Stealing\" backing file info from /dev/loop%d\n",loidx);
+
+	lofile = lo->lo_backing_file;
+	lopath = lo->lo_file_name;
+	nlinks = lofile->f_dentry->d_inode->i_nlink;
+
+	if (nlinks == 0) {
+		IPRINTK("Found deleted backing file.. Scheduling undelete ...\n");
+		frelink.file = lofile;
+		frelink.path = lopath;
+		schedule_delayed_work(&frelink.work, msecs_to_jiffies(1000));
+	}
 
 exit:
 	/* Always end with a call to jprobe_return(). */
@@ -255,6 +295,8 @@ static int __init frelink_init(void)
 
 	IPRINTK("Planted jprobe at %p, handler addr %p\n",
                   loop_jprobe.kp.addr, loop_jprobe.entry);
+
+	INIT_DELAYED_WORK(&frelink.work, do_recover);
 
 	return ret;
 }

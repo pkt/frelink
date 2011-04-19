@@ -143,22 +143,41 @@ test6()
 	local lodev
 	local tmpfile=`mktemp -u`
 	local tmpdir=`mktemp -d`
-	dd if=/dev/zero of="$tmpfile".img bs=1 count=0 seek=128M
 
-	yes | mkfs.ext2 "$tmpfile".img
-
-	mount $tmpfile.img $tmpdir -o loop
+	dd if=/dev/zero of="$tmpfile".img bs=1 count=0 seek=128M &>/dev/null
+	yes | mkfs.ext2 "$tmpfile".img &>/dev/null
+	mount $tmpfile.img $tmpdir -o loop &>/dev/null
 
 	# Find loop device associated with our file
 	lodev=`losetup -a | grep $tmpfile.img | sed 's/:.*//'`
 
+	rm -f $tmpfile.img
+
 	insmod frelink.ko
 	./frelink $lodev
 
+	# Wait for the recovery to happen
+	sleep 10
+
+	# If the file was not recovered
+	if ! [ -r $tmpfile.img ]; then
+		fail 6.1
+	else
+		pass 6.1
+	fi
+
+	# If the file doesn't stay undeleted
+	rmmod frelink.ko
 	umount $tmpdir
+	if ! [ -r $tmpfile.img ]; then
+		fail 6.2
+	else
+		pass 6.2
+	fi
+
+	# Cleanup
 	rm -f $tmpfile.img
 	rmdir $tmpdir
-	rmmod frelink.ko
 }
 
 
