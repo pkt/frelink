@@ -158,6 +158,7 @@ test6()
 	umount $tmpdir
 	rm -f $tmpfile.img
 	rmdir $tmpdir
+	rmmod frelink.ko
 }
 
 
