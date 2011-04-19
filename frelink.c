@@ -98,6 +98,9 @@ static void do_recover(struct work_struct *work)
 	else
 		IPRINTK("Failed to undelete \"%s\": "
                         "ret = \"%d\"\n", name, ret);
+
+	/* We have finished with recovering, no longer busy */
+	atomic_set(&rd->busy,0);
 }
 
 
@@ -207,6 +210,7 @@ static int recover_from_fd(struct frelink_arg *p)
 
 exit:
 	fput(f);
+	atomic_set(&frelink.busy,0);
 	return ret;
 }
 
