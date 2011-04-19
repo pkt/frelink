@@ -32,6 +32,9 @@
 #include <linux/file.h>
 #include <linux/fs.h>
 
+#include <linux/kprobes.h>
+#include <linux/loop.h>
+
 #include "frelink.h"
 
 
@@ -47,7 +50,7 @@ MODULE_VERSION("0.5");
 /*
  * Forward decls
  */
-
+static long jloop_get_status(struct loop_device *lo, struct loop_info64 *info);
 
 
 /*
@@ -60,7 +63,18 @@ static struct frelink_data frelink;
 
 
 /*
- * This function is a "juice" of the module and shared by
+ * KProbe structure
+ */
+static struct jprobe loop_jprobe = {
+	.entry                   = jloop_get_status,
+	.kp = {
+		.symbol_name     = "loop_get_status",
+	},
+};
+
+
+/*
+ * This function is the "juice" of the module and shared by
  * both code paths (fd and loop). Given a "struct file *"
  * and a path, it makes a new hardlink for the deleted
  * file's inode so that it doesn't get actually deleted.
@@ -101,6 +115,22 @@ exit:
 }
 
 
+/*
+ * Our jprobe handler. "Steals" the struct file * and path.
+ */
+static long jloop_get_status(struct loop_device *lo, struct loop_info64 *info)
+{
+	int loidx = lo->lo_number;
+
+	IPRINTK("Successfully hooked loop_get_status for /dev/loop%d\n",loidx);
+
+	/* Always end with a call to jprobe_return(). */
+	jprobe_return();
+
+	/* Control never actually reaches this point */
+	return 0;
+}
+
 
 /*
  * IOCTL handler 1: recover from fd.
@@ -129,6 +159,19 @@ exit:
 	return ret;
 }
 
+/*
+ * IOCTL handler 2: recover a loop-mounted file
+ */
+static int recover_from_loop(struct frelink_arg *p)
+{
+	int ret;
+	int loidx = p->id.loidx;
+
+	IPRINTK("Recovering loop-mounted file from /dev/loop%d\n",loidx);
+
+	return 0;
+}
+
 
 /* IOCTL CODE ---------------------------------------------------------*/
 static long frelink_ioctl(struct file *file, unsigned int cmd,
@@ -150,7 +193,7 @@ static long frelink_ioctl(struct file *file, unsigned int cmd,
 		ret = recover_from_fd(p);
 		break;
 	case FRELINK_IOCRECLOOP:
-		ret = 0;
+		ret = recover_from_loop(p);
 		break;
 	case FRELINK_IOCRECTEST:
 		ret = p->id.fd == 1 ? 0 : -EFAULT;
@@ -173,6 +216,7 @@ static const struct file_operations frelink_ops = {
 static int __init frelink_init(void)
 {
   	struct proc_dir_entry *entry;
+	int ret = 0;
 
 	IPRINTK ("frelink module loaded\n");
 
@@ -185,7 +229,17 @@ static int __init frelink_init(void)
 	entry->proc_fops = &frelink_ops;
 	frelink.proc_entry = entry;
 
-	return 0;
+	ret = register_jprobe(&loop_jprobe);
+	
+	if (ret < 0) {
+		IPRINTK("register_jprobe failed, returned %d\n", ret);
+		return -1;
+	}
+
+	IPRINTK("Planted jprobe at %p, handler addr %p\n",
+                  loop_jprobe.kp.addr, loop_jprobe.entry);
+
+	return ret;
 }
 module_init(frelink_init);
 
@@ -195,5 +249,9 @@ static void __exit frelink_exit(void)
 	IPRINTK ("unloading module...\n");
 
 	remove_proc_entry(MODULE_NAME, NULL);
+
+	unregister_jprobe(&loop_jprobe);
+
+	IPRINTK("jprobe at \"%p\" unregistered\n", loop_jprobe.kp.addr);
 }
 module_exit(frelink_exit);

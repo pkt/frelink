@@ -36,6 +36,7 @@ static int tst_ioctl(unsigned int devfd);
 static int recover_from_fd(unsigned int devfd, const char *const name);
 static int recover_from_lo(unsigned int devfd, const char *const name);
 
+static int probe_lo(const char *const devname);
 
 #define starts_with(A,B) (strncmp((A), (B), strlen(B)) == 0)
 
@@ -73,6 +74,8 @@ int main(int argc, char **argv)
 
 	if (starts_with(arg, "/dev/loop")) {
 		ret = recover_from_lo(devfd, arg);
+		if (!probe_lo(arg))
+			fputs("Could not probe loop back device\n",stderr);
 		goto release_devfd;
 	}
 
@@ -156,8 +159,35 @@ static int recover_from_fd(unsigned int devfd, const char *const name)
 static int recover_from_lo(unsigned int devfd, const char *const name)
 {
 	struct frelink_arg data;
-	int loidx = 0;
+	int loidx = -1;
 
-	fputs("TODO\n",stderr);
-	return 0;
+	if (sscanf(name, "/dev/loop%d", &loidx) == 0) {
+		fputs("Bad loop device\n", stderr);
+		return 1;
+	}
+
+	data.id.loidx = loidx;
+
+	return ioctl(devfd, FRELINK_IOCRECLOOP, &data);
+}
+
+#define LOOP_GET_STATUS         0x4C03
+
+static int probe_lo(const char *const devname)
+{
+	/* We don't care about the layout, just make it big enough */
+	char loop_info[256]; 
+	int devfd;
+
+	errno = 0;
+	if ((devfd = open(devname, O_RDONLY)) < 0)
+		return 0;
+
+	fprintf(stderr,"Probing loop device %s\n",devname);
+
+	//We don't care about the return value at all
+	ioctl (devfd, LOOP_GET_STATUS, &loop_info);
+
+	close(devfd);
+	return 1;
 }

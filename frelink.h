@@ -36,7 +36,7 @@ struct frelink_arg
 {
   union {
     unsigned int fd;
-    unsigned int lno;
+    unsigned int loidx;
   } id;
   const char *path;
 };
