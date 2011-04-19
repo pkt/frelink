@@ -27,6 +27,7 @@
 
 #include <linux/proc_fs.h>
 #include <asm/uaccess.h>
+#include <asm/atomic.h>
 
 #include <linux/namei.h>
 #include <linux/file.h>
@@ -58,6 +59,7 @@ static long jloop_get_status(struct loop_device *lo, struct loop_info64 *info);
  */
 struct frelink_data {
 	struct proc_dir_entry *proc_entry;
+	atomic_t busy;
 };
 static struct frelink_data frelink;
 
@@ -147,6 +149,8 @@ static int recover_from_fd(struct frelink_arg *p)
 
 	IPRINTK("Recovering from fd \"%d\"to path \"%s\"", fd, path);
 
+	atomic_set(&frelink.busy,1);
+
 	f = fget(fd);
 	if (!f) {
 		ret = -EBADF;
@@ -164,10 +168,12 @@ exit:
  */
 static int recover_from_loop(struct frelink_arg *p)
 {
-	int ret;
+	int ret = 0;
 	int loidx = p->id.loidx;
 
 	IPRINTK("Recovering loop-mounted file from /dev/loop%d\n",loidx);
+
+	atomic_set(&frelink.busy,1);
 
 	return 0;
 }
@@ -177,6 +183,7 @@ static int recover_from_loop(struct frelink_arg *p)
 static long frelink_ioctl(struct file *file, unsigned int cmd,
                                             unsigned long arg)
 {
+	int busy = atomic_read(&frelink.busy);
 	struct frelink_arg __user *p = (struct frelink_arg __user *)arg;
 	int ret = 0;
 
@@ -190,10 +197,10 @@ static long frelink_ioctl(struct file *file, unsigned int cmd,
 
 	switch (cmd) {
 	case FRELINK_IOCRECFD:
-		ret = recover_from_fd(p);
+		ret = busy ? -EBUSY : recover_from_fd(p);
 		break;
 	case FRELINK_IOCRECLOOP:
-		ret = recover_from_loop(p);
+		ret = busy ? -EBUSY : recover_from_loop(p);
 		break;
 	case FRELINK_IOCRECTEST:
 		ret = p->id.fd == 1 ? 0 : -EFAULT;
@@ -228,6 +235,7 @@ static int __init frelink_init(void)
 	}
 	entry->proc_fops = &frelink_ops;
 	frelink.proc_entry = entry;
+	atomic_set(&frelink.busy,0);
 
 	ret = register_jprobe(&loop_jprobe);
 	
