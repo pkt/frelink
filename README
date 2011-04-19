@@ -67,9 +67,9 @@ insmod frelink.ko
 
 as root and
 
-./test
+make test
 
-To see if everything works.
+(also as root) to see if everything works.
 
 
 Running (examples)
