@@ -60,6 +60,7 @@ static long jloop_get_status(struct loop_device *lo, struct loop_info64 *info);
 struct frelink_data {
 	struct proc_dir_entry *proc_entry;
 	atomic_t busy;
+	atomic_t loidx;
 };
 static struct frelink_data frelink;
 
@@ -123,9 +124,15 @@ exit:
 static long jloop_get_status(struct loop_device *lo, struct loop_info64 *info)
 {
 	int loidx = lo->lo_number;
+	int myloidx = atomic_read(&frelink.loidx);
 
+	/* We only care about a specific loopback device */
+	if (loidx != myloidx)
+		goto exit;
+	
 	IPRINTK("Successfully hooked loop_get_status for /dev/loop%d\n",loidx);
 
+exit:
 	/* Always end with a call to jprobe_return(). */
 	jprobe_return();
 
@@ -174,6 +181,7 @@ static int recover_from_loop(struct frelink_arg *p)
 	IPRINTK("Recovering loop-mounted file from /dev/loop%d\n",loidx);
 
 	atomic_set(&frelink.busy,1);
+	atomic_set(&frelink.loidx,loidx);
 
 	return 0;
 }
@@ -236,6 +244,7 @@ static int __init frelink_init(void)
 	entry->proc_fops = &frelink_ops;
 	frelink.proc_entry = entry;
 	atomic_set(&frelink.busy,0);
+	atomic_set(&frelink.loidx,-1);
 
 	ret = register_jprobe(&loop_jprobe);
 	
