@@ -1,2 +1,186 @@
 frelink - recover deleted open or loop-mounted files
 ====================================================
+
+Introduction
+------------
+
+Did you ever happen to delete a precious file by mistake but
+it is still open by a process or loop-mounted?
+
+If still open by a process, is it too big to copy it from the
+/proc/<pid>/fd/X "symlink" or is it randomly changing so that
+you can't use cp or 'tail' to copy it safely? (E.g., a virtual
+machine image or a big MySQL innodb tablespace).
+
+If yes, then this project tries to be the answer to your problem.
+FRelink consists of a Linux kernel module and a CLI userspace
+app that are together able to "restore" (re-hardlink at VFS level)
+deleted files that are still open by a process or loop-mounted.
+
+
+BIG FAT WARNING
+---------------
+
+THIS MODULE IS A REAL HACK. IT MESSES WITH IN-MEMORY KERNEL
+STRUCTURES IN A WAY THAT PEOPLE NORMALLY SHOULDN'T. DO *NOT*
+USE THIS ON A PRODUCTION MACHINE BEFORE TESTING ON A VM WITH
+THE EXACT SAME KERNEL AS YOUR PRODUCTION MACHINE FIRST. THE
+RISK OF DESTROYING YOUR FILE SYSTEM COMPLETELY IS QUITE HIGH
+OTHERWISE. FURTHERMORE, THE KERNEL MODULE IS A BIG SECURITY
+RISK. ONLY INSTALL FOR A SPECIFIC RECOVERY AND THEN DELETE
+THE TOOL AND REBOOT AS SOON AS POSSIBLE.
+
+THIS CODE IS GIVEN TO YOU FREE OF CHARGE AND WITH ALL RIGHTS
+OF GPLV2 OR LATER (AT YOUR OPTION) BUT THE AUTHOR HAS *NO*
+RESPONSIBILITY OR LIABILITY TO YOU OR ANYONE ELSE FOR ANY
+DAMAGE YOU CAUSE TO YOUR SYSTEM, YOUR CLIENTS, YOUR DOG
+OR ANYTHING ELSE. IF ANYTHING BREAKS, YOU GET TO KEEP THE
+PIECES :P
+
+That said, at least this approach has a fair chance to work,
+and is cross-filesystem, while the alternative (using debugfs)
+will destroy your filesystem for sure and will not recover
+the file you want either (at least in modern journalled
+filesystems) ...
+
+Nevertheless, only use as a last option, only when you know
+what you are doing. If you don't feel confident it is much
+better to get someone else to recover the file for you, at
+least this way you can curse someone else instead of yourself
+if the recovery fails :P
+
+If this project saves your life or job etc and you want to
+send a "thank you" note, or donate money, books or hardware
+to the author, he can be reached at <pktoss@gmail.com>
+
+
+Compiling and installing
+------------------------
+
+Just issue
+
+make
+
+Then
+
+insmod frelink.ko
+
+as root and
+
+./test
+
+To see if everything works.
+
+
+Running (examples)
+------------------
+
+./frelink /proc/574/fd/4 (recover open file)
+
+./frelink /dev/loop1     (recover loop mounted file)
+
+A hardlink to the file will be created (again) using
+the original (deleted) path name and the symlink on
+/proc/<pid>/fd/X will also be restored and not say
+"(deleted)" anymore.
+
+DO NOT try any "fancy" tricks like changing backing
+store for the loop device or anything like this because
+in this case you WILL destroy your system and panic
+your kernel. Don't say I didn't warn you ...
+
+
+
+Prerequisites
+-------------
+
+frelink has only been tested in Ubuntu maverick default kernel
+on both x86 and x86_64.
+
+Especially for recovering loop-mounted files your kernel needs
+to support kprobes (because the only way I 've found to get the
+struct file pointer for the backing file of a loop device
+is to "steal" it using a kprobe).
+
+
+
+Theory of Operation and Related work
+------------------------------------
+
+The module exposes a file "/proc/frecover" in which it accepts
+IOCTL requests.
+
+For open files:
+
+The userspace app figures out the original path by doing a
+readlink(2) on the /proc/<pid>/fd/X path you give. Then it
+opens the /proc file and passes the fd and original name
+to the module.
+
+The module in turn proceeds to create a new dentry for the
+path and vfs_link it with the old one.
+
+It also puts the old one back to the dentry cache so that
+the /proc link appears restored (doesn't say "(deleted)"
+anymore). Error checking performed is really minimal,
+since this module is only supposed to be used on a
+case-by-case basis and then removed as soon as possible.
+
+Play tricks like giving a different than the original
+name to the kernel (by not using the frelink app) and
+you will destroy your system. 
+
+
+For loop-mounted files:
+
+There is no way I know that someone can get an fd or
+dentry back in a "normal" way from the loop module
+about it's backing file.
+
+So, we use a really ugly hack, a jprobe with which
+we "steal" the struct file of the backing file
+from the module and subsequently we use it to
+do the undelete from a workqueue.
+
+To activate the jprobe we need to do an IOCTL
+to the loop device as well (so, again, use
+the frelink app, don't play with the module
+by yourself).
+
+Because the undelete is scheduled and no locking
+or checking is performed (to keep the code short
+and easy to understand), if you do tricks like
+changing the backing file of the loopback device
+before the recovery is completed, you are almost
+guaranteed to crash your system ... Don't say
+I didn't warn you ...
+
+
+References:
+
+There are 2 more similar modules (that don't support
+loop-mounted files though):
+
+fdlink: http://fdlink.sourceforge.net
+        (by amos shapira)
+
+vfs-undelete: http://vfs-undelete.sourceforge.net
+
+frelink has been based mostly on fdlink code.
+
+The request to make this functionality a syscall
+also seems to come to LKML every 2-3 years or so
+and every time it gets shot down for (valid)
+security reasons, e.g.,
+
+http://lkml.org/lkml/2003/4/6/112
+
+To my knowledge, all the features that people have
+asked for such a project (recover original name,
+restore the /proc link, restore also loop-mounted
+files) have been implemented in frelink. But should
+you want anything more, or to contribute better/saner
+ways to implement this functionality, you can contact
+the author at <pktoss@gmail.com>
+
+-Pantelis
