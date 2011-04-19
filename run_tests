@@ -9,14 +9,30 @@ if [[ `id -u` != "0" ]]; then
 fi
 
 
+# Array of cleanup functions
+declare -a on_exit_commands
+
+
 # Cleanup function for robustness
-cleanup()
+on_exit()
 { 
 	if grep frelink /proc/modules &>/dev/null; then
 		rmmod frelink.ko
 	fi
+
+	for i in "${on_exit_commands[@]}"; do
+		eval $i
+	done
 }
-trap cleanup 0
+trap on_exit EXIT
+
+# Utility to add an exit function
+add_on_exit()
+{
+	local n=${#on_exit_commands[*]}
+	on_exit_commands[$n]="$*"
+}
+
 
 
 # Standardized fail function
@@ -92,16 +108,17 @@ test4()
 test5()
 {
 	local tmp
-	local tmpfile=`mktemp`
-	echo "blabla" > $tmpfile
-	exec 6<> $tmpfile # open $tmpfile, assign to fd 6
-	rm -f $tmpfile
+	tmpfile=`mktemp`
+	echo "blabla" > "$tmpfile"
+	exec 6<> "$tmpfile" # open $tmpfile, assign to fd 6
+	add_on_exit rm -f "$tmpfile"
+	rm -f "$tmpfile"
 
 	insmod frelink.ko
 	./frelink /proc/$$/fd/6
 
 	# If the file was not recovered
-	if ! [ -r $tmpfile ]; then
+	if ! [ -r "$tmpfile" ]; then
 		fail 5.1
 	else
 		pass 5.1
@@ -116,7 +133,8 @@ test5()
 		pass 5.2
 	fi
 
-	tmp=`cat $tmpfile`
+	sleep 50
+	tmp=`cat "$tmpfile"`
 
 	# If the contents of the file are not the correct ones
 	if [[ "$tmp" != "blabla" ]]; then
@@ -133,7 +151,6 @@ test5()
 		pass 5.4
 	fi
 
-	rm -f "$tmpfile"
 	rmmod frelink.ko
 }
 
@@ -141,17 +158,21 @@ test5()
 test6()
 {
 	local lodev
-	local tmpfile=`mktemp -u`
+	local tmpfile=`mktemp -u`.img
 	local tmpdir=`mktemp -d`
 
-	dd if=/dev/zero of="$tmpfile".img bs=1 count=0 seek=128M &>/dev/null
-	yes | mkfs.ext2 "$tmpfile".img &>/dev/null
-	mount $tmpfile.img $tmpdir -o loop &>/dev/null
+	dd if=/dev/zero of="$tmpfile" bs=1 count=0 seek=128M &>/dev/null
+	yes | mkfs.ext2 "$tmpfile" &>/dev/null
+	mount "$tmpfile" "$tmpdir" -o loop &>/dev/null
+
+	add_on_exit umount "$tmpdir"
+	add_on_exit rmdir "$tmpdir"
+	add_on_exit rm -f "$tmpfile"
 
 	# Find loop device associated with our file
-	lodev=`losetup -a | grep $tmpfile.img | sed 's/:.*//'`
+	lodev=`losetup -a | grep "$tmpfile" | sed 's/:.*//'`
 
-	rm -f $tmpfile.img
+	rm -f "$tmpfile"
 
 	insmod frelink.ko
 	./frelink $lodev
@@ -160,24 +181,22 @@ test6()
 	sleep 10
 
 	# If the file was not recovered
-	if ! [ -r $tmpfile.img ]; then
+	if ! [ -r "$tmpfile" ]; then
 		fail 6.1
 	else
-		pass 6.1
+		fail 6.1
 	fi
 
 	# If the file doesn't stay undeleted
 	rmmod frelink.ko
-	umount $tmpdir
-	if ! [ -r $tmpfile.img ]; then
+	umount "$tmpdir"
+	if ! [ -r "$tmpfile" ]; then
 		fail 6.2
 	else
 		pass 6.2
 	fi
 
-	# Cleanup
-	rm -f $tmpfile.img
-	rmdir $tmpdir
+	rmmod frelink.ko
 }
 
 
